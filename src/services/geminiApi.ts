@@ -17,7 +17,8 @@ export class GeminiApiService {
   }
 
   async analyzeScreenWithQuestion(imageBase64: string, question: string): Promise<string> {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro-vision:generateContent?key=${this.apiKey}`;
+    // Updated to use the correct gemini-1.5-flash model endpoint
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${this.apiKey}`;
     
     const requestBody = {
       contents: [
@@ -77,5 +78,10 @@ export class GeminiApiService {
 
   static clearStoredApiKey(): void {
     localStorage.removeItem('gemini_api_key');
+  }
+
+  static setApiKey(apiKey: string): void {
+    const encodedKey = btoa(apiKey);
+    localStorage.setItem('gemini_api_key', encodedKey);
   }
 }

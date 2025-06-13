@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -7,6 +8,10 @@ import { Mic, MicOff, Video, VideoOff, Volume2, Copy, Send, Settings } from 'luc
 import { useToast } from '@/hooks/use-toast';
 import { ApiKeyModal } from '@/components/ApiKeyModal';
 import { ApiKeySettings } from '@/components/ApiKeySettings';
+import { StatusBar } from '@/components/StatusBar';
+import { FloatingActionButton } from '@/components/FloatingActionButton';
+import { ProcessingAnimation } from '@/components/ProcessingAnimation';
+import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { GeminiApiService } from '@/services/geminiApi';
 
 const Index = () => {
@@ -16,9 +21,12 @@ const Index = () => {
   const [aiReply, setAiReply] = useState('');
   const [capturedImage, setCapturedImage] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [processingStage, setProcessingStage] = useState<'capturing' | 'analyzing' | 'generating'>('capturing');
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const [geminiService, setGeminiService] = useState<GeminiApiService | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [captureCount, setCaptureCount] = useState(0);
+  const [isConnected, setIsConnected] = useState(navigator.onLine);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -28,6 +36,11 @@ const Index = () => {
   const { toast } = useToast();
 
   useEffect(() => {
+    // Initialize with your provided API key
+    const providedApiKey = 'AIzaSyClOfPbYIvUFcYloU_YWmIoOohG3wgyp3s';
+    GeminiApiService.setApiKey(providedApiKey);
+    setGeminiService(new GeminiApiService(providedApiKey));
+
     // Initialize speech recognition
     if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
       const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
@@ -56,11 +69,12 @@ const Index = () => {
       };
     }
 
-    // Initialize API key if stored
-    const storedApiKey = GeminiApiService.getStoredApiKey();
-    if (storedApiKey) {
-      setGeminiService(new GeminiApiService(storedApiKey));
-    }
+    // Online/offline detection
+    const handleOnline = () => setIsConnected(true);
+    const handleOffline = () => setIsConnected(false);
+    
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
 
     return () => {
       if (captureIntervalRef.current) {
@@ -69,6 +83,8 @@ const Index = () => {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
       }
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
     };
   }, [toast]);
 
@@ -85,7 +101,10 @@ const Index = () => {
         setIsScreenSharing(true);
         
         // Start capturing frames every 5 seconds
-        captureIntervalRef.current = setInterval(captureFrame, 5000);
+        captureIntervalRef.current = setInterval(() => {
+          captureFrame();
+          setCaptureCount(prev => prev + 1);
+        }, 5000);
         
         toast({
           title: "Screen sharing started",
@@ -114,6 +133,7 @@ const Index = () => {
     
     setIsScreenSharing(false);
     setCapturedImage('');
+    setCaptureCount(0);
     
     toast({
       title: "Screen sharing stopped",
@@ -131,7 +151,6 @@ const Index = () => {
       if (context) {
         context.drawImage(videoRef.current, 0, 0);
         const imageData = canvas.toDataURL('image/jpeg', 0.8);
-        // Remove data:image/jpeg;base64, prefix for API
         const base64Data = imageData.split(',')[1];
         setCapturedImage(base64Data);
       }
@@ -156,6 +175,14 @@ const Index = () => {
     }
   };
 
+  const toggleVoiceInput = () => {
+    if (isListening) {
+      stopVoiceInput();
+    } else {
+      startVoiceInput();
+    }
+  };
+
   const processQuestion = async () => {
     if (!userPrompt.trim() || !capturedImage) {
       toast({
@@ -177,13 +204,19 @@ const Index = () => {
     }
 
     setIsProcessing(true);
+    setProcessingStage('capturing');
     
     try {
       toast({
-        title: "Analyzing screen...",
+        title: "Starting analysis...",
         description: "Processing your question with AI",
       });
+
+      // Simulate processing stages with delays for better UX
+      setProcessingStage('analyzing');
+      await new Promise(resolve => setTimeout(resolve, 1000));
       
+      setProcessingStage('generating');
       const response = await geminiService.analyzeScreenWithQuestion(capturedImage, userPrompt);
       setAiReply(response);
       
@@ -227,14 +260,21 @@ const Index = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-6">
-      <div className="max-w-6xl mx-auto space-y-6">
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-4 md:p-6">
+      <StatusBar 
+        isConnected={isConnected}
+        isProcessing={isProcessing}
+        captureCount={captureCount}
+        apiKeySet={!!geminiService}
+      />
+      
+      <div className="max-w-6xl mx-auto space-y-6 animate-fade-in">
         {/* Header */}
         <div className="text-center space-y-2 relative">
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
+          <h1 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent animate-fade-in">
             Vision AI Assistant
           </h1>
-          <p className="text-slate-300 text-lg">
+          <p className="text-slate-300 text-base md:text-lg animate-fade-in">
             Share your screen, ask questions, and get AI-powered assistance
           </p>
           
@@ -243,7 +283,7 @@ const Index = () => {
             onClick={() => setShowSettings(!showSettings)}
             variant="ghost"
             size="sm"
-            className="absolute top-0 right-0 text-slate-400 hover:text-white"
+            className="absolute top-0 right-0 text-slate-400 hover:text-white transition-all duration-200 hover:scale-105"
           >
             <Settings className="w-4 h-4" />
           </Button>
@@ -262,8 +302,8 @@ const Index = () => {
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Screen Capture Section */}
-          <Card className="p-6 bg-slate-800/50 backdrop-blur-sm border-slate-700 hover:bg-slate-800/60 transition-colors">
-            <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
+          <Card className="p-4 md:p-6 bg-slate-800/50 backdrop-blur-sm border-slate-700 hover:bg-slate-800/60 transition-all duration-300 hover:shadow-xl animate-fade-in">
+            <h2 className="text-lg md:text-xl font-semibold text-white mb-4 flex items-center gap-2">
               <Video className="w-5 h-5" />
               Screen Capture
             </h2>
@@ -295,7 +335,7 @@ const Index = () => {
                   ref={videoRef}
                   autoPlay
                   muted
-                  className="w-full rounded-lg bg-slate-900 border border-slate-600"
+                  className="w-full rounded-lg bg-slate-900 border border-slate-600 transition-all duration-300"
                   style={{ maxHeight: '300px' }}
                 />
                 {isScreenSharing && (
@@ -306,16 +346,17 @@ const Index = () => {
               </div>
               
               {capturedImage && (
-                <p className="text-green-400 text-sm animate-fade-in">
-                  ✓ Screen frames being captured every 5 seconds
+                <p className="text-green-400 text-sm animate-fade-in flex items-center gap-2">
+                  <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                  Screen frames being captured every 5 seconds
                 </p>
               )}
             </div>
           </Card>
 
           {/* Question Input Section */}
-          <Card className="p-6 bg-slate-800/50 backdrop-blur-sm border-slate-700 hover:bg-slate-800/60 transition-colors">
-            <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
+          <Card className="p-4 md:p-6 bg-slate-800/50 backdrop-blur-sm border-slate-700 hover:bg-slate-800/60 transition-all duration-300 hover:shadow-xl animate-fade-in">
+            <h2 className="text-lg md:text-xl font-semibold text-white mb-4 flex items-center gap-2">
               <Mic className="w-5 h-5" />
               Ask Your Question
             </h2>
@@ -350,7 +391,7 @@ const Index = () => {
                   value={userPrompt}
                   onChange={(e) => setUserPrompt(e.target.value)}
                   placeholder="What do you see on my screen? Can you help me with this error?"
-                  className="bg-slate-700 border-slate-600 text-white resize-none transition-colors focus:border-purple-500"
+                  className="bg-slate-700 border-slate-600 text-white resize-none transition-all duration-200 focus:border-purple-500 focus:shadow-lg"
                   rows={3}
                 />
               </div>
@@ -362,7 +403,7 @@ const Index = () => {
               >
                 {isProcessing ? (
                   <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    <LoadingSpinner size="sm" className="mr-2" />
                     Processing...
                   </>
                 ) : (
@@ -378,18 +419,18 @@ const Index = () => {
 
         {/* AI Response Section */}
         {aiReply && (
-          <Card className="p-6 bg-slate-800/50 backdrop-blur-sm border-slate-700 animate-fade-in">
-            <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
+          <Card className="p-4 md:p-6 bg-slate-800/50 backdrop-blur-sm border-slate-700 animate-fade-in hover:shadow-xl transition-all duration-300">
+            <h2 className="text-lg md:text-xl font-semibold text-white mb-4 flex items-center gap-2">
               <div className="w-5 h-5 bg-gradient-to-r from-blue-400 to-purple-400 rounded-full animate-pulse"></div>
               AI Response
             </h2>
             
             <div className="space-y-4">
-              <div className="bg-slate-700/50 rounded-lg p-4 border border-slate-600">
+              <div className="bg-slate-700/50 rounded-lg p-4 border border-slate-600 transition-all duration-200 hover:bg-slate-700/70">
                 <p className="text-slate-100 leading-relaxed whitespace-pre-wrap">{aiReply}</p>
               </div>
               
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <Button 
                   onClick={speakResponse}
                   variant="outline"
@@ -416,12 +457,25 @@ const Index = () => {
         )}
 
         {/* Instructions */}
-        <Card className="p-4 bg-slate-800/30 backdrop-blur-sm border-slate-700">
+        <Card className="p-4 bg-slate-800/30 backdrop-blur-sm border-slate-700 animate-fade-in">
           <p className="text-slate-300 text-sm text-center">
-            💡 <strong>How to use:</strong> {geminiService ? 'Start screen sharing → Ask a question via voice or text → Get real AI-powered assistance' : 'First set up your Google Gemini API key via the settings button above'}
+            💡 <strong>How to use:</strong> Start screen sharing → Ask a question via voice or text → Get real AI-powered assistance
           </p>
         </Card>
       </div>
+
+      {/* Floating Action Button */}
+      <FloatingActionButton
+        isListening={isListening}
+        onToggleListening={toggleVoiceInput}
+        disabled={isProcessing}
+      />
+
+      {/* Processing Animation */}
+      <ProcessingAnimation
+        isVisible={isProcessing}
+        stage={processingStage}
+      />
 
       {/* API Key Modal */}
       <ApiKeyModal
