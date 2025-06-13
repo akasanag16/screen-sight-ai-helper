@@ -1,11 +1,13 @@
-
 import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { Separator } from '@/components/ui/separator';
-import { Mic, MicOff, Video, VideoOff, Volume2, Copy, Send } from 'lucide-react';
+import { Mic, MicOff, Video, VideoOff, Volume2, Copy, Send, Settings } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { ApiKeyModal } from '@/components/ApiKeyModal';
+import { ApiKeySettings } from '@/components/ApiKeySettings';
+import { GeminiApiService } from '@/services/geminiApi';
 
 const Index = () => {
   const [isScreenSharing, setIsScreenSharing] = useState(false);
@@ -14,6 +16,9 @@ const Index = () => {
   const [aiReply, setAiReply] = useState('');
   const [capturedImage, setCapturedImage] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
+  const [geminiService, setGeminiService] = useState<GeminiApiService | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -49,6 +54,12 @@ const Index = () => {
           variant: "destructive",
         });
       };
+    }
+
+    // Initialize API key if stored
+    const storedApiKey = GeminiApiService.getStoredApiKey();
+    if (storedApiKey) {
+      setGeminiService(new GeminiApiService(storedApiKey));
     }
 
     return () => {
@@ -155,36 +166,50 @@ const Index = () => {
       return;
     }
 
+    if (!geminiService) {
+      toast({
+        title: "API Key Required",
+        description: "Please set up your Google Gemini API key first",
+        variant: "destructive",
+      });
+      setShowApiKeyModal(true);
+      return;
+    }
+
     setIsProcessing(true);
     
     try {
-      // Note: This is a placeholder for the Gemini API call
-      // In a real implementation, you would need to handle API keys securely
       toast({
-        title: "Processing question...",
-        description: "Analyzing screen and generating response",
+        title: "Analyzing screen...",
+        description: "Processing your question with AI",
       });
       
-      // Simulate AI response for demo purposes
-      setTimeout(() => {
-        const mockResponse = `I can see your screen content. Based on your question "${userPrompt}", here's my analysis: This appears to be a coding interface. I can help you with debugging, explaining code structures, or providing suggestions for improvement.`;
-        setAiReply(mockResponse);
-        setIsProcessing(false);
-        
-        toast({
-          title: "Analysis complete",
-          description: "Response generated successfully",
-        });
-      }, 2000);
+      const response = await geminiService.analyzeScreenWithQuestion(capturedImage, userPrompt);
+      setAiReply(response);
+      
+      toast({
+        title: "Analysis complete",
+        description: "AI response generated successfully",
+      });
       
     } catch (error) {
-      setIsProcessing(false);
+      console.error('Processing error:', error);
       toast({
         title: "Processing failed",
-        description: "Please try again or check your connection",
+        description: error instanceof Error ? error.message : "Please try again or check your API key",
         variant: "destructive",
       });
+    } finally {
+      setIsProcessing(false);
     }
+  };
+
+  const handleApiKeySet = (apiKey: string) => {
+    setGeminiService(new GeminiApiService(apiKey));
+  };
+
+  const handleApiKeyRemoved = () => {
+    setGeminiService(null);
   };
 
   const speakResponse = () => {
@@ -205,18 +230,39 @@ const Index = () => {
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-6">
       <div className="max-w-6xl mx-auto space-y-6">
         {/* Header */}
-        <div className="text-center space-y-2">
+        <div className="text-center space-y-2 relative">
           <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
             Vision AI Assistant
           </h1>
           <p className="text-slate-300 text-lg">
             Share your screen, ask questions, and get AI-powered assistance
           </p>
+          
+          {/* Settings Button */}
+          <Button
+            onClick={() => setShowSettings(!showSettings)}
+            variant="ghost"
+            size="sm"
+            className="absolute top-0 right-0 text-slate-400 hover:text-white"
+          >
+            <Settings className="w-4 h-4" />
+          </Button>
         </div>
+
+        {/* API Key Settings */}
+        {showSettings && (
+          <div className="animate-fade-in">
+            <ApiKeySettings
+              hasApiKey={!!geminiService}
+              onOpenApiKeyModal={() => setShowApiKeyModal(true)}
+              onApiKeyRemoved={handleApiKeyRemoved}
+            />
+          </div>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Screen Capture Section */}
-          <Card className="p-6 bg-slate-800/50 backdrop-blur-sm border-slate-700">
+          <Card className="p-6 bg-slate-800/50 backdrop-blur-sm border-slate-700 hover:bg-slate-800/60 transition-colors">
             <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
               <Video className="w-5 h-5" />
               Screen Capture
@@ -227,7 +273,7 @@ const Index = () => {
                 {!isScreenSharing ? (
                   <Button 
                     onClick={startScreenSharing}
-                    className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
+                    className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 transition-all duration-200 hover:scale-105"
                   >
                     <Video className="w-4 h-4 mr-2" />
                     Start Screen Sharing
@@ -236,6 +282,7 @@ const Index = () => {
                   <Button 
                     onClick={stopScreenSharing}
                     variant="destructive"
+                    className="hover:scale-105 transition-transform"
                   >
                     <VideoOff className="w-4 h-4 mr-2" />
                     Stop Sharing
@@ -252,14 +299,14 @@ const Index = () => {
                   style={{ maxHeight: '300px' }}
                 />
                 {isScreenSharing && (
-                  <div className="absolute top-2 right-2 bg-red-600 text-white px-2 py-1 rounded text-sm">
+                  <div className="absolute top-2 right-2 bg-red-600 text-white px-2 py-1 rounded text-sm animate-pulse">
                     ● LIVE
                   </div>
                 )}
               </div>
               
               {capturedImage && (
-                <p className="text-green-400 text-sm">
+                <p className="text-green-400 text-sm animate-fade-in">
                   ✓ Screen frames being captured every 5 seconds
                 </p>
               )}
@@ -267,7 +314,7 @@ const Index = () => {
           </Card>
 
           {/* Question Input Section */}
-          <Card className="p-6 bg-slate-800/50 backdrop-blur-sm border-slate-700">
+          <Card className="p-6 bg-slate-800/50 backdrop-blur-sm border-slate-700 hover:bg-slate-800/60 transition-colors">
             <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
               <Mic className="w-5 h-5" />
               Ask Your Question
@@ -278,7 +325,7 @@ const Index = () => {
                 {!isListening ? (
                   <Button 
                     onClick={startVoiceInput}
-                    className="bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700"
+                    className="bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700 transition-all duration-200 hover:scale-105"
                   >
                     <Mic className="w-4 h-4 mr-2" />
                     Ask via Voice
@@ -303,7 +350,7 @@ const Index = () => {
                   value={userPrompt}
                   onChange={(e) => setUserPrompt(e.target.value)}
                   placeholder="What do you see on my screen? Can you help me with this error?"
-                  className="bg-slate-700 border-slate-600 text-white resize-none"
+                  className="bg-slate-700 border-slate-600 text-white resize-none transition-colors focus:border-purple-500"
                   rows={3}
                 />
               </div>
@@ -311,7 +358,7 @@ const Index = () => {
               <Button 
                 onClick={processQuestion}
                 disabled={isProcessing || !userPrompt.trim() || !capturedImage}
-                className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
+                className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 transition-all duration-200 hover:scale-105 disabled:hover:scale-100"
               >
                 {isProcessing ? (
                   <>
@@ -331,22 +378,22 @@ const Index = () => {
 
         {/* AI Response Section */}
         {aiReply && (
-          <Card className="p-6 bg-slate-800/50 backdrop-blur-sm border-slate-700">
+          <Card className="p-6 bg-slate-800/50 backdrop-blur-sm border-slate-700 animate-fade-in">
             <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
-              <div className="w-5 h-5 bg-gradient-to-r from-blue-400 to-purple-400 rounded-full"></div>
+              <div className="w-5 h-5 bg-gradient-to-r from-blue-400 to-purple-400 rounded-full animate-pulse"></div>
               AI Response
             </h2>
             
             <div className="space-y-4">
               <div className="bg-slate-700/50 rounded-lg p-4 border border-slate-600">
-                <p className="text-slate-100 leading-relaxed">{aiReply}</p>
+                <p className="text-slate-100 leading-relaxed whitespace-pre-wrap">{aiReply}</p>
               </div>
               
               <div className="flex gap-2">
                 <Button 
                   onClick={speakResponse}
                   variant="outline"
-                  className="border-slate-600 text-slate-300 hover:bg-slate-700"
+                  className="border-slate-600 text-slate-300 hover:bg-slate-700 transition-all hover:scale-105"
                 >
                   <Volume2 className="w-4 h-4 mr-2" />
                   Speak Response
@@ -358,7 +405,7 @@ const Index = () => {
                     toast({ title: "Copied to clipboard" });
                   }}
                   variant="outline"
-                  className="border-slate-600 text-slate-300 hover:bg-slate-700"
+                  className="border-slate-600 text-slate-300 hover:bg-slate-700 transition-all hover:scale-105"
                 >
                   <Copy className="w-4 h-4 mr-2" />
                   Copy Response
@@ -371,10 +418,18 @@ const Index = () => {
         {/* Instructions */}
         <Card className="p-4 bg-slate-800/30 backdrop-blur-sm border-slate-700">
           <p className="text-slate-300 text-sm text-center">
-            💡 <strong>How to use:</strong> Start screen sharing → Ask a question via voice or text → Get AI-powered assistance based on what's visible on your screen
+            💡 <strong>How to use:</strong> {geminiService ? 'Start screen sharing → Ask a question via voice or text → Get real AI-powered assistance' : 'First set up your Google Gemini API key via the settings button above'}
           </p>
         </Card>
       </div>
+
+      {/* API Key Modal */}
+      <ApiKeyModal
+        isOpen={showApiKeyModal}
+        onClose={() => setShowApiKeyModal(false)}
+        onApiKeySet={handleApiKeySet}
+        currentApiKey={geminiService ? GeminiApiService.getStoredApiKey() || '' : ''}
+      />
     </div>
   );
 };
